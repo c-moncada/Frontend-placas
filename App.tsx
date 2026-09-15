@@ -12,6 +12,7 @@ type Lectura = {
   id: string;
   estado: 'pendiente' | 'ok' | 'sin_placa' | 'no_decodificable' | 'muy_grande' | 'error';
   placa: string | null;
+  propietario: { nombre: string; telefono: string | null; vehiculo: string | null } | null;
   bbox: object | null;
   procesada: string | null;
 };
@@ -74,12 +75,24 @@ export default function App() {
             <View key={l.id} style={styles.tarjeta}>
               <FotoPlaca fotoId={l.id} tieneRecorte={l.bbox !== null} version={l.procesada} />
               <Text style={l.placa ? styles.placa : styles.sinPlaca}>{l.placa ?? SIN_TEXTO[l.estado]}</Text>
+              {l.propietario && <Dueno propietario={l.propietario} />}
             </View>
           ))}
         </ScrollView>
         <StatusBar style="auto" />
       </SafeAreaView>
     </SafeAreaProvider>
+  );
+}
+
+// Los datos del dueño, cuando la placa está registrada en /propietarios de la API
+function Dueno({ propietario }: { propietario: NonNullable<Lectura['propietario']> }) {
+  const detalle = [propietario.vehiculo, propietario.telefono].filter(Boolean).join(' · ');
+  return (
+    <View style={styles.dueno}>
+      <Text style={styles.duenoNombre}>{propietario.nombre}</Text>
+      {detalle !== '' && <Text style={styles.duenoDetalle}>{detalle}</Text>}
+    </View>
   );
 }
 
@@ -147,6 +160,17 @@ const styles = StyleSheet.create({
   },
   sinPlaca: {
     fontSize: 16,
+    color: '#666',
+  },
+  dueno: {
+    alignItems: 'center',
+  },
+  duenoNombre: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  duenoDetalle: {
+    fontSize: 14,
     color: '#666',
   },
   error: {
