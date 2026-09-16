@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Image, Platform, Pressable, RefreshControl, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, Image, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
@@ -30,8 +30,6 @@ const color = {
   hueco: '#E5E7EB',
   acento: '#1D4ED8',
   acentoPresionado: '#1E40AF',
-  exceso: '#DC2626',
-  excesoFondo: '#FEF2F2',
 };
 
 type Tono = 'ok' | 'info' | 'aviso' | 'error' | 'neutro';
@@ -95,18 +93,15 @@ export default function App() {
   const [textoLimite, setTextoLimite] = useState('');
   const limite = leerLimite(textoLimite);
   const excedidos = limite === null ? [] : lecturas.filter((l) => superoLimite(l, limite));
-  const resto = excedidos.length === 0 ? lecturas : lecturas.filter((l) => !excedidos.includes(l));
-  const secciones = [
-    { clave: 'exceso', data: excedidos },
-    { clave: 'resto', data: resto },
-  ].filter((s) => s.data.length > 0);
+
+  // Las fotos sin placa solo cuentan en el resumen; la lista muestra placas leídas
+  const conPlaca = lecturas.filter((l) => l.placa);
 
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.pantalla}>
-        <SectionList
-          sections={secciones}
-          stickySectionHeadersEnabled={false}
+        <FlatList
+          data={conPlaca}
           keyExtractor={(l) => l.id}
           contentContainerStyle={styles.lista}
           refreshControl={
@@ -116,21 +111,18 @@ export default function App() {
             <View style={styles.encabezado}>
               <Encabezado lecturas={lecturas} cargando={cargando} onActualizar={() => cargar()} />
               {error && <AvisoError mensaje={error} onReintentar={() => cargar()} />}
-              <ControlLimite texto={textoLimite} onCambiar={setTextoLimite} limite={limite} excedidos={excedidos.length} hayLecturas={lecturas.length > 0} />
+              <ControlLimite
+                texto={textoLimite}
+                onCambiar={setTextoLimite}
+                limite={limite}
+                excedidos={excedidos.length}
+                excedidosConPlaca={excedidos.filter((l) => l.placa).length}
+                hayLecturas={lecturas.length > 0}
+              />
             </View>
           }
-          ListEmptyComponent={primeraCarga ? <Esqueleto /> : error ? null : <ListaVacia />}
-          renderSectionHeader={({ section }) =>
-            section.clave === 'exceso' ? (
-              <AlertaExceso cantidad={excedidos.length} limite={limite!} />
-            ) : excedidos.length > 0 ? (
-              <Text style={styles.seccionTitulo}>Demás lecturas</Text>
-            ) : null
-          }
-          renderItem={({ item, section }) => {
-            const excedio = section.clave === 'exceso' ? limite : null;
-            return item.placa ? <TarjetaPlaca lectura={item} limiteExcedido={excedio} /> : <FilaSinPlaca lectura={item} limiteExcedido={excedio} />;
-          }}
+          ListEmptyComponent={primeraCarga ? <Esqueleto /> : error ? null : <ListaVacia hayFotos={lecturas.length > 0} />}
+          renderItem={({ item }) => <TarjetaPlaca lectura={item} limite={limite} />}
         />
         <StatusBar style="dark" />
       </SafeAreaView>
@@ -206,28 +198,30 @@ function ControlLimite({
   onCambiar,
   limite,
   excedidos,
+  excedidosConPlaca,
   hayLecturas,
 }: {
   texto: string;
   onCambiar: (t: string) => void;
   limite: number | null;
   excedidos: number;
+  excedidosConPlaca: number;
   hayLecturas: boolean;
 }) {
-  const alerta = limite !== null && excedidos > 0;
   const ayuda =
     limite === null
       ? texto.trim() === ''
         ? 'Escribe una velocidad para marcar a los carros que la superen.'
         : 'Escribe solo números, por ejemplo 40.'
       : excedidos > 0
-        ? `${excedidos} ${excedidos === 1 ? 'carro superó' : 'carros superaron'} ${kmh(limite)}.`
+        ? `${excedidos} ${excedidos === 1 ? 'carro superó' : 'carros superaron'} ${kmh(limite)}` +
+          (excedidosConPlaca < excedidos ? ` (${excedidosConPlaca} con placa).` : '.')
         : hayLecturas
           ? `Ningún carro superó ${kmh(limite)}.`
           : `Límite: ${kmh(limite)}.`;
 
   return (
-    <View style={[styles.limite, alerta && styles.limiteActivo]}>
+    <View style={styles.limite}>
       <View style={styles.limiteFila}>
         <Text style={styles.limiteRotulo}>Límite de velocidad</Text>
         <View style={styles.limiteCampo}>
@@ -246,69 +240,33 @@ function ControlLimite({
           <Text style={styles.limiteUnidad}>km/h</Text>
         </View>
       </View>
-      <Text style={[styles.limiteAyuda, alerta && styles.limiteAyudaAlerta]}>{ayuda}</Text>
+      <Text style={styles.limiteAyuda}>{ayuda}</Text>
     </View>
   );
 }
 
-// Banner rojo sobre los carros que superaron el límite, con un punto que late
-function AlertaExceso({ cantidad, limite }: { cantidad: number; limite: number }) {
-  const pulso = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    const nativo = Platform.OS !== 'web';
-    const animacion = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulso, { toValue: 0.25, duration: 600, useNativeDriver: nativo }),
-        Animated.timing(pulso, { toValue: 1, duration: 600, useNativeDriver: nativo }),
-      ]),
-    );
-    animacion.start();
-    return () => animacion.stop();
-  }, [pulso]);
-
-  return (
-    <View style={styles.alerta} accessibilityRole="alert">
-      <Animated.View style={[styles.alertaPunto, { opacity: pulso }]} />
-      <View style={styles.filaTextos}>
-        <Text style={styles.alertaTitulo}>
-          {cantidad} {cantidad === 1 ? 'CARRO SUPERÓ' : 'CARROS SUPERARON'} EL LÍMITE
-        </Text>
-        <Text style={styles.alertaTexto}>Más de {kmh(limite)}</Text>
-      </View>
-    </View>
-  );
-}
-
-// Velocidad de la lectura; en rojo y con cuánto se pasó si superó el límite
-function Velocidad({ valor, limiteExcedido }: { valor: number | null; limiteExcedido: number | null }) {
+// Velocidad de la lectura: gris normal, o en tono de error si superó el límite
+function Velocidad({ valor, limite }: { valor: number | null; limite: number | null }) {
   if (valor === null) return null;
-  if (limiteExcedido === null) {
-    return (
-      <View style={[styles.etiqueta, { backgroundColor: tonos.neutro.fondo }]}>
-        <Text style={[styles.etiquetaTexto, { color: tonos.neutro.texto }]}>{kmh(valor)}</Text>
-      </View>
-    );
-  }
+  const excedio = limite !== null && valor > limite;
+  const tono = tonos[excedio ? 'error' : 'neutro'];
   return (
-    <View style={styles.velocidadExceso}>
-      <Text style={styles.velocidadExcesoTexto}>{kmh(valor)}</Text>
-      <Text style={styles.velocidadExcesoExtra}>+{kmh(valor - limiteExcedido)}</Text>
+    <View style={[styles.etiqueta, { backgroundColor: tono.fondo }]}>
+      <Text style={[styles.etiquetaTexto, { color: tono.texto }]}>{excedio ? `${kmh(valor)} · Exceso` : kmh(valor)}</Text>
     </View>
   );
 }
 
 // Lectura con placa: el recorte, la placa como placa y el dueño si está registrado
-function TarjetaPlaca({ lectura, limiteExcedido }: { lectura: Lectura; limiteExcedido: number | null }) {
-  const excedio = limiteExcedido !== null;
+function TarjetaPlaca({ lectura, limite }: { lectura: Lectura; limite: number | null }) {
   return (
-    <View style={[styles.tarjeta, excedio && styles.tarjetaExceso]}>
-      {excedio && <Text style={styles.franjaExceso}>SUPERÓ EL LÍMITE</Text>}
+    <View style={styles.tarjeta}>
       <FotoPlaca fotoId={lectura.id} tieneRecorte={lectura.bbox !== null} version={lectura.procesada} />
       <View style={styles.tarjetaCuerpo}>
         <View style={styles.tarjetaFila}>
           <Placa texto={lectura.placa!} />
           <View style={styles.chips}>
-            <Velocidad valor={lectura.velocidad_kmh} limiteExcedido={limiteExcedido} />
+            <Velocidad valor={lectura.velocidad_kmh} limite={limite} />
             <Etiqueta estado={lectura.estado} />
           </View>
         </View>
@@ -316,32 +274,6 @@ function TarjetaPlaca({ lectura, limiteExcedido }: { lectura: Lectura; limiteExc
         <Text style={styles.meta} numberOfLines={1}>
           {cuando(lectura.procesada ?? lectura.subida)} · {lectura.nombre}
         </Text>
-      </View>
-    </View>
-  );
-}
-
-// Lectura sin placa: una fila compacta, para que no ocupe lo mismo que una placa leída
-function FilaSinPlaca({ lectura, limiteExcedido }: { lectura: Lectura; limiteExcedido: number | null }) {
-  const { etiqueta, tono } = ESTADOS[lectura.estado];
-  return (
-    <View style={[styles.fila, limiteExcedido !== null && styles.filaExceso]}>
-      <View style={styles.filaIndicador}>
-        {lectura.estado === 'pendiente' ? (
-          <ActivityIndicator size="small" color={tonos.info.texto} />
-        ) : (
-          <View style={[styles.punto, { backgroundColor: tonos[tono].texto }]} />
-        )}
-      </View>
-      <View style={styles.filaTextos}>
-        <Text style={styles.filaEstado}>{lectura.estado === 'ok' ? 'Sin texto de placa' : etiqueta}</Text>
-        <Text style={styles.meta} numberOfLines={1}>
-          {lectura.nombre}
-        </Text>
-      </View>
-      <View style={styles.filaDerecha}>
-        <Velocidad valor={lectura.velocidad_kmh} limiteExcedido={limiteExcedido} />
-        <Text style={styles.meta}>{cuando(lectura.procesada ?? lectura.subida)}</Text>
       </View>
     </View>
   );
@@ -432,10 +364,10 @@ function Esqueleto() {
   );
 }
 
-function ListaVacia() {
+function ListaVacia({ hayFotos }: { hayFotos: boolean }) {
   return (
     <View style={styles.vacia}>
-      <Text style={styles.vaciaTitulo}>Aún no hay fotos</Text>
+      <Text style={styles.vaciaTitulo}>{hayFotos ? 'Ninguna foto tiene placa todavía' : 'Aún no hay fotos'}</Text>
       <Text style={styles.vaciaTexto}>Las fotos que subas a iCloud aparecerán aquí con su placa.</Text>
     </View>
   );
@@ -546,43 +478,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tarjetaExceso: {
-    borderWidth: 2,
-    borderColor: color.exceso,
-  },
-  franjaExceso: {
-    backgroundColor: color.exceso,
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-  },
   chips: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: 6,
-  },
-  velocidadExceso: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 6,
-    backgroundColor: color.exceso,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-  },
-  velocidadExcesoTexto: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  velocidadExcesoExtra: {
-    color: '#FEE2E2',
-    fontSize: 12,
-    fontWeight: '700',
   },
   limite: {
     gap: 8,
@@ -591,10 +491,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: color.borde,
     backgroundColor: color.superficie,
-  },
-  limiteActivo: {
-    borderColor: color.exceso,
-    backgroundColor: color.excesoFondo,
   },
   limiteFila: {
     flexDirection: 'row',
@@ -634,44 +530,6 @@ const styles = StyleSheet.create({
   limiteAyuda: {
     fontSize: 14,
     color: color.textoSuave,
-  },
-  limiteAyudaAlerta: {
-    color: color.exceso,
-    fontWeight: '600',
-  },
-  alerta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 16,
-    marginTop: 8,
-    borderRadius: 14,
-    backgroundColor: color.exceso,
-  },
-  alertaPunto: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#FFFFFF',
-  },
-  alertaTitulo: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  alertaTexto: {
-    color: '#FEE2E2',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  seccionTitulo: {
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    color: color.textoSuave,
-    marginTop: 16,
   },
   tarjetaCuerpo: {
     padding: 16,
@@ -750,19 +608,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: color.borde,
   },
-  filaExceso: {
-    borderWidth: 2,
-    borderColor: color.exceso,
-    backgroundColor: color.excesoFondo,
-  },
-  filaDerecha: {
-    alignItems: 'flex-end',
-    gap: 4,
-  },
-  filaIndicador: {
-    width: 20,
-    alignItems: 'center',
-  },
   punto: {
     width: 10,
     height: 10,
@@ -771,11 +616,6 @@ const styles = StyleSheet.create({
   filaTextos: {
     flex: 1,
     gap: 2,
-  },
-  filaEstado: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: color.texto,
   },
   esqueleto: {
     gap: 8,
