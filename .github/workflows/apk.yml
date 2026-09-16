@@ -1,0 +1,53 @@
+# Compila el APK de Android en GitHub (sin EAS) y lo deja como artifact del run.
+# Secrets del repo (Settings → Secrets and variables → Actions):
+#   EXPO_PUBLIC_API_URL  URL de la API, sin / al final
+#   EXPO_PUBLIC_API_KEY  el valor de API_KEY en Render
+name: APK Android
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Metro los incrusta en el bundle al compilar
+      EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+      EXPO_PUBLIC_API_KEY: ${{ secrets.EXPO_PUBLIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: npm ci
+
+      # /android no está en git: se genera aquí
+      - run: npx expo prebuild --platform android --no-install
+
+      # El release sale firmado con la debug.keystore que genera prebuild
+      - name: Compilar APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: placas-${{ github.sha }}
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
