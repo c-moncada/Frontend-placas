@@ -1,7 +1,7 @@
 # Compila el APK de Android en GitHub (sin EAS) y lo deja como artifact del run.
-# Secrets del repo (Settings → Secrets and variables → Actions):
-#   EXPO_PUBLIC_API_URL  URL de la API, sin / al final
-#   EXPO_PUBLIC_API_KEY  el valor de API_KEY en Render
+# Secret del repo (Settings → Secrets and variables → Actions):
+#   EXPO_PUBLIC_API_URL  URL del proxy de Vercel, p. ej. https://<proyecto>.vercel.app/api
+# La API key no va en el APK: la agrega el proxy (api/proxy.ts) en el servidor.
 name: APK Android
 
 on:
@@ -20,7 +20,6 @@ jobs:
     env:
       # Metro los incrusta en el bundle al compilar
       EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
-      EXPO_PUBLIC_API_KEY: ${{ secrets.EXPO_PUBLIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 

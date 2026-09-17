@@ -62,7 +62,7 @@ export default function App() {
     try {
       const r = await fetch(`${API_URL}/icloud/lecturas?limite=50`, { headers });
       if (!r.ok) {
-        setError(`La API respondió ${r.status}${r.status === 401 ? ': revisa EXPO_PUBLIC_API_KEY' : ''}`);
+        setError(`La API respondió ${r.status}${r.status === 401 ? ': revisa API_KEY en Vercel' : ''}`);
         return;
       }
       const datos: { lecturas: Lectura[] } = await r.json();
